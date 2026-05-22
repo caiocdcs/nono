@@ -207,12 +207,13 @@ impl TrustKeyStore {
                 }
                 #[cfg(feature = "system-keyring")]
                 {
-                    let entry = keyring::Entry::new(service, account).map_err(|e| {
+                    nono::init_keyring_store();
+                    let entry = keyring_core::Entry::new(service, account).map_err(|e| {
                         NonoError::KeystoreAccess(format!("failed to access keystore: {e}"))
                     })?;
                     match entry.get_password() {
                         Ok(_) => Ok(true),
-                        Err(keyring::Error::NoEntry) => Ok(false),
+                        Err(keyring_core::Error::NoEntry) => Ok(false),
                         Err(other) => Err(NonoError::KeystoreAccess(format!(
                             "failed to access key '{account}': {other}"
                         ))),
@@ -238,14 +239,15 @@ impl TrustKeyStore {
                 }
                 #[cfg(feature = "system-keyring")]
                 {
-                    let entry = keyring::Entry::new(service, account).map_err(|e| {
+                    nono::init_keyring_store();
+                    let entry = keyring_core::Entry::new(service, account).map_err(|e| {
                         NonoError::KeystoreAccess(format!("failed to access keystore: {e}"))
                     })?;
                     entry
                         .get_password()
                         .map(Zeroizing::new)
                         .map_err(|e| match e {
-                            keyring::Error::NoEntry => NonoError::SecretNotFound(format!(
+                            keyring_core::Error::NoEntry => NonoError::SecretNotFound(format!(
                                 "key '{account}' not found in keystore"
                             )),
                             other => NonoError::KeystoreAccess(format!(
@@ -293,7 +295,8 @@ impl TrustKeyStore {
                 }
                 #[cfg(feature = "system-keyring")]
                 {
-                    let entry = keyring::Entry::new(service, account).map_err(|e| {
+                    nono::init_keyring_store();
+                    let entry = keyring_core::Entry::new(service, account).map_err(|e| {
                         NonoError::KeystoreAccess(format!("failed to access keystore: {e}"))
                     })?;
                     entry

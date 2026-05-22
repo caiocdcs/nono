@@ -16,7 +16,7 @@ categories = ["os", "api-bindings"]
 default = ["system-keyring"]
 # Enables OS system keyring access (macOS Keychain / Linux Secret Service).
 # Headless/container consumers opt out with default-features = false.
-system-keyring = ["dep:keyring"]
+system-keyring = ["dep:keyring", "dep:keyring-core"]
 
 [dependencies]
 thiserror.workspace = true
@@ -35,7 +35,9 @@ regress = "0.11"
 libc = "0.2"
 
 # Keychain access (optional: requires libdbus on Linux)
-keyring = { version = "3", optional = true }
+keyring = { version = "4", optional = true }
+# Error types from keyring's underlying store layer (used for pattern matching).
+keyring-core = { version = "1", optional = true }
 
 # Sigstore bundle verification.
 # `sigstore-trust-root` is pinned to 0.6.3 because 0.6.5 made
@@ -53,11 +55,11 @@ der = { version = "0.7", default-features = false }
 [target.'cfg(target_os = "linux")'.dependencies]
 landlock.workspace = true
 nix = { workspace = true, features = ["fs", "user"] }
-keyring = { version = "3", features = ["sync-secret-service"], optional = true }
+keyring = { version = "4", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 nix = { workspace = true, features = ["fs", "user"] }
-keyring = { version = "3", features = ["apple-native"], optional = true }
+keyring = { version = "4", optional = true }
 
 [build-dependencies]
 typify = "0.6"

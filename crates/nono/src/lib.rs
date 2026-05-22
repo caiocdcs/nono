@@ -71,6 +71,8 @@ pub use diagnostic::{
     IpcDenialRecord, SandboxViolation,
 };
 pub use error::{NonoError, Result};
+#[cfg(feature = "system-keyring")]
+pub use keystore::init_keyring_store;
 pub use keystore::{
     LoadedSecret, is_apple_password_uri, is_env_uri, is_file_uri, is_keyring_uri, is_op_uri,
     load_secret_by_ref, load_secret_file, load_secrets, redact_apple_password_uri, redact_file_uri,

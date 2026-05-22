@@ -23,7 +23,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 #[cfg(feature = "system-keyring")]
-use std::sync::mpsc;
+use std::sync::{OnceLock, mpsc};
 use std::time::Duration;
 use zeroize::Zeroizing;
 
@@ -70,6 +70,40 @@ fn keyring_timeout() -> Option<Duration> {
             }
         },
     }
+}
+
+/// Initialise the system keyring store once per process.
+///
+/// On Linux, selects the zbus-based Secret Service store so that nono's
+/// own timeout wrapper governs how long we wait, instead of the 2-second
+/// hard-coded D-Bus timeout that the dbus/libdbus backend imposes.
+/// On macOS/Windows, selects the platform-native store.
+/// This is a no-op on subsequent calls (guarded by OnceLock).
+///
+/// keyring v4 requires explicit store selection before any
+/// `keyring_core::Entry::new` call; without it, `Entry::new` returns
+/// `NotSupportedByStore`. Callers across the workspace must invoke this
+/// before constructing entries — `nono::keystore` does so in its load
+/// paths, and `nono-cli::trust_keystore` invokes it via this re-export.
+#[cfg(feature = "system-keyring")]
+pub fn init_keyring_store() {
+    static INIT: OnceLock<()> = OnceLock::new();
+    INIT.get_or_init(|| {
+        #[cfg(target_os = "linux")]
+        {
+            if let Err(e) =
+                keyring::use_zbus_secret_service_store(&std::collections::HashMap::new())
+            {
+                tracing::warn!("Failed to init zbus Secret Service store: {}", e);
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            if let Err(e) = keyring::use_native_store(false) {
+                tracing::warn!("Failed to init native keyring store: {}", e);
+            }
+        }
+    });
 }
 
 /// Call a blocking keyring function with an optional timeout.
@@ -971,12 +1005,13 @@ pub fn store_secret_file(path: &Path, secret: &str) -> Result<()> {
 #[cfg(feature = "system-keyring")]
 fn load_single_secret(service: &str, account: &str) -> Result<Zeroizing<String>> {
     let timeout = keyring_timeout();
+    init_keyring_store();
     let service = service.to_string();
     let account = account.to_string();
     let label = format!("keyring lookup for '{}'", account);
 
     call_with_keyring_timeout(timeout, &label, move || {
-        let entry = keyring::Entry::new(&service, &account).map_err(|e| {
+        let entry = keyring_core::Entry::new(&service, &account).map_err(|e| {
             NonoError::KeystoreAccess(format!(
                 "Failed to access keystore for '{}': {}",
                 account, e
@@ -988,8 +1023,10 @@ fn load_single_secret(service: &str, account: &str) -> Result<Zeroizing<String>>
                 tracing::debug!("Successfully loaded secret '{}'", account);
                 Ok(Zeroizing::new(password))
             }
-            Err(keyring::Error::NoEntry) => Err(NonoError::SecretNotFound(account.to_string())),
-            Err(keyring::Error::Ambiguous(creds)) => Err(NonoError::KeystoreAccess(format!(
+            Err(keyring_core::Error::NoEntry) => {
+                Err(NonoError::SecretNotFound(account.to_string()))
+            }
+            Err(keyring_core::Error::Ambiguous(creds)) => Err(NonoError::KeystoreAccess(format!(
                 "Multiple entries ({}) found for '{}' - please resolve manually",
                 creds.len(),
                 account
@@ -1156,6 +1193,7 @@ fn load_from_keyring_uri(uri: &str) -> Result<Zeroizing<String>> {
     tracing::debug!("Loading secret from system keyring: {}", redacted);
 
     let timeout = keyring_timeout();
+    init_keyring_store();
     let service = parts.service.to_string();
     let account = parts.account.to_string();
     let decode = parts.decode;
@@ -1163,7 +1201,7 @@ fn load_from_keyring_uri(uri: &str) -> Result<Zeroizing<String>> {
     let label = format!("keyring lookup for '{}'", redacted);
 
     call_with_keyring_timeout(timeout, &label, move || {
-        let entry = keyring::Entry::new(&service, &account).map_err(|e| {
+        let entry = keyring_core::Entry::new(&service, &account).map_err(|e| {
             NonoError::KeystoreAccess(format!(
                 "Failed to access keyring for '{}': {}",
                 redacted_clone, e
@@ -1176,12 +1214,12 @@ fn load_from_keyring_uri(uri: &str) -> Result<Zeroizing<String>> {
                 let decoded = apply_keyring_decode(password, decode, &redacted_clone)?;
                 Ok(decoded)
             }
-            Err(keyring::Error::NoEntry) => Err(NonoError::SecretNotFound(format!(
+            Err(keyring_core::Error::NoEntry) => Err(NonoError::SecretNotFound(format!(
                 "keyring entry not found: '{}'. \
                  Verify the service and account match the stored credential.",
                 redacted_clone
             ))),
-            Err(keyring::Error::Ambiguous(creds)) => Err(NonoError::KeystoreAccess(format!(
+            Err(keyring_core::Error::Ambiguous(creds)) => Err(NonoError::KeystoreAccess(format!(
                 "Multiple entries ({}) found for '{}' - please resolve manually",
                 creds.len(),
                 redacted_clone
